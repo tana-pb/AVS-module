@@ -795,64 +795,109 @@ REGEL 1 = [CODE] [OMSCHRIJVING], REGEL 2 = [AANTAL]
 }
 
 // ══════════════════════════════════════════════════════════════
-// EXCEL GENERATION — template-based (behoudt exacte opmaak)
+// EXCEL GENERATION — directe ZIP-manipulatie (behoudt logo + opmaak 100%)
 // ══════════════════════════════════════════════════════════════
 
-function generateExcel(data) {
-  // Laad de originele template (behoudt alle opmaak, kleuren, borders etc.)
-  const wb = XLSX.read(TEMPLATE_B64, { type: 'base64' });
-  const ws = wb.Sheets['ETL excl materiaalkosten'];
+// Escaped XML string
+function xmlEsc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-  // Vul alleen de lege datavelden in — raak de opmaak niet aan
-  ws['F2'] = { v: data.uitvoerdatum || '', t: 's' };
-  ws['F4'] = { v: data.postcode || '', t: 's' };
-  ws['F5'] = { v: data.adres || '', t: 's' };
-  ws['F6'] = { v: data.plaats || '', t: 's' };
-  ws['F7'] = { v: data.beschrijving || '', t: 's' };
+// Vervang een lege cel door een cel met inline string waarde
+// Patroon: <c r="F2" s="412"/>  →  <c r="F2" s="412" t="inlineStr"><is><t>waarde</t></is></c>
+function setCellInline(xml, cellRef, value) {
+  const esc = xmlEsc(value);
+  // Lege zelfsluitende cel
+  xml = xml.replace(
+    new RegExp(`(<c r="${cellRef}"[^/]*)/>`),
+    `$1 t="inlineStr"><is><t>${esc}</t></is></c>`
+  );
+  // Cel met bestaande waarde (shared string of inline)
+  xml = xml.replace(
+    new RegExp(`(<c r="${cellRef}"[^>]*t="[^"]*"[^>]*>).*?</c>`),
+    `<c r="${cellRef}" s="$1" t="inlineStr"><is><t>${esc}</t></is></c>`
+  );
+  // Tweede poging: cel met stijl maar zonder type, met <v>
+  xml = xml.replace(
+    new RegExp(`(<c r="${cellRef}" s="(\\d+)")[^>]*>[^<]*<v>[^<]*</v>[^<]*</c>`),
+    `<c r="${cellRef}" s="$2" t="inlineStr"><is><t>${esc}</t></is></c>`
+  );
+  return xml;
+}
 
-  // Projectnummer in B3 en F3 — placeholder als niet gevonden
+// Zet een getal in een lege Aantal-cel (kolom J)
+function setJCell(xml, row, value) {
+  const cellRef = `J${row}`;
+  // Lege cel: <c r="J16" s="10"/>
+  xml = xml.replace(
+    new RegExp(`(<c r="${cellRef}" s="(\\d+)")/>`),
+    `<c r="${cellRef}" s="$2"><v>${value}</v></c>`
+  );
+  // Cel al met waarde: vervang de <v>
+  xml = xml.replace(
+    new RegExp(`(<c r="${cellRef}" s="\\d+"[^>]*>)<v>[^<]*</v>(</c>)`),
+    `$1<v>${value}</v>$2`
+  );
+  return xml;
+}
+
+async function generateExcelBytes(data) {
+  // Laad template als ZIP
+  const templateBytes = Uint8Array.from(atob(TEMPLATE_B64), c => c.charCodeAt(0));
+  const templateZip   = await JSZip.loadAsync(templateBytes);
+
+  // Lees sheet1.xml
+  let sheet1 = await templateZip.file('xl/worksheets/sheet1.xml').async('string');
+
+  // ── Vul de datavelden in ──────────────────────────────────
+  sheet1 = setCellInline(sheet1, 'F2', data.uitvoerdatum || '');
+  sheet1 = setCellInline(sheet1, 'F4', data.postcode || '');
+  sheet1 = setCellInline(sheet1, 'F5', data.adres || '');
+  sheet1 = setCellInline(sheet1, 'F6', data.plaats || '');
+  sheet1 = setCellInline(sheet1, 'F7', data.beschrijving || '');
+
+  // Projectnummer
   if (data.projectnummer) {
-    ws['B3'] = { v: data.projectnummer, t: 's' };
-    ws['F3'] = { v: data.projectnummer, t: 's' };
+    sheet1 = setCellInline(sheet1, 'B3', data.projectnummer);
+    sheet1 = setCellInline(sheet1, 'F3', data.projectnummer);
   } else {
-    ws['B3'] = { v: '>>> PROJECTNUMMER INVULLEN <<<', t: 's' };
-    ws['F3'] = { v: '>>> PROJECTNUMMER INVULLEN <<<', t: 's' };
+    sheet1 = setCellInline(sheet1, 'B3', '>>> PROJECTNUMMER INVULLEN <<<');
+    sheet1 = setCellInline(sheet1, 'F3', '>>> PROJECTNUMMER INVULLEN <<<');
     data._missingProjectnummer = true;
   }
 
-  // Wis eerst alle bestaande Aantal-waarden (kolom J, rijen 13-67)
-  for (let r = 13; r <= 67; r++) {
-    const cell = `J${r}`;
-    if (ws[cell] && ws[cell].t !== 'z') {
-      // Bewaar formule of leeg — verwijder alleen getallen
-      const v = ws[cell].v;
-      if (typeof v === 'number') ws[cell] = { v: null, t: 'z' };
-    }
-  }
-
-  // Vul de aantallen in vanuit de productiestaat
+  // ── Vul aantallen in kolom J ──────────────────────────────
   (data.productiestaat || []).forEach(item => {
     const row = CODE_ROW_MAP[item.code];
     if (row && item.aantal) {
-      ws[`J${row}`] = { v: item.aantal, t: 'n' };
+      sheet1 = setJCell(sheet1, row, item.aantal);
     }
   });
 
-  return wb;
+  // Schrijf sheet1 terug
+  templateZip.file('xl/worksheets/sheet1.xml', sheet1);
+
+  // Genereer de XLSX bytes — alle andere bestanden (logo, styles, drawings) ongewijzigd
+  return await templateZip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 }
 
 // ══════════════════════════════════════════════════════════════
 // ZIP + SUPABASE UPLOAD
 // ══════════════════════════════════════════════════════════════
 async function buildAndUploadZip(fo) {
-  // Build ZIP in memory
-  const zip = new JSZip();
+  const zip   = new JSZip();
   zip.file(fo.file.name, await fo.file.arrayBuffer());
-  const wb        = generateExcel(fo.data);
-  const adres     = (fo.data.adres || 'AVS').replace(/[^a-zA-Z0-9]/g,'_');
-  const datum     = (fo.data.uitvoerdatum || new Date().toISOString().slice(0,10)).replace(/-/g,'');
-  const xlsxName  = `AVS_${adres}_${datum}.xlsx`;
-  zip.file(xlsxName, XLSX.write(wb, { bookType:'xlsx', type:'array' }));
+
+  const adres    = (fo.data.adres || 'AVS').replace(/[^a-zA-Z0-9]/g,'_');
+  const datum    = (fo.data.uitvoerdatum || new Date().toISOString().slice(0,10)).replace(/-/g,'');
+  const xlsxName = `AVS_${adres}_${datum}.xlsx`;
+
+  // Genereer Excel met behoud van logo en opmaak
+  const xlsxBytes = await generateExcelBytes(fo.data);
+  zip.file(xlsxName, xlsxBytes);
+
   const zipBlob = await zip.generateAsync({ type:'blob' });
   const zipName = `AVS_${adres}_${datum}.zip`;
 
@@ -1034,14 +1079,9 @@ async function downloadAllZips() {
   // Download elke ZIP met korte vertraging ertussen
   for (let i = 0; i < done.length; i++) {
     const fo = done[i];
-    const adres  = (fo.data?.adres || fo.file.name.replace('.pdf','')).replace(/[^a-zA-Z0-9]/g,'_');
-    const datum  = (fo.data?.uitvoerdatum || new Date().toISOString().slice(0,10)).replace(/-/g,'');
-    const url    = URL.createObjectURL(fo.zipBlob);
-    const a      = Object.assign(document.createElement('a'), { href:url, download:`AVS_${adres}_${datum}.zip` });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    await downloadFromStorage(fo.storagePath, fo.zipName);
     // Kleine pauze tussen downloads zodat de browser ze niet blokkeert
-    if (i < done.length - 1) await new Promise(r => setTimeout(r, 600));
+    if (i < done.length - 1) await new Promise(r => setTimeout(r, 800));
   }
 
   btn.disabled = false;
