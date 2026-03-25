@@ -191,6 +191,27 @@ body::before {
 .btn-dl-all { background:var(--surface2); border:1px solid rgba(71,255,170,0.3); border-radius:var(--radius); padding:16px 20px; color:var(--success); font-family:'Syne',sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s; white-space:nowrap; display:flex; align-items:center; gap:8px; }
 .btn-dl-all:hover { background:rgba(71,255,170,0.1); border-color:var(--success); transform:translateY(-1px); }
 .btn-dl-all:disabled { opacity:0.4; cursor:not-allowed; transform:none; }
+.btn-dl-banner {
+  width: 100%;
+  background: rgba(71,255,170,0.08);
+  border: 1.5px solid rgba(71,255,170,0.4);
+  border-radius: var(--radius);
+  padding: 16px 24px;
+  color: var(--success);
+  font-family: 'Syne', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  letter-spacing: 0.01em;
+}
+.btn-dl-banner:hover { background: rgba(71,255,170,0.15); border-color: var(--success); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(71,255,170,0.1); }
+.btn-dl-banner:active { transform: translateY(0); }
+.btn-dl-banner:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-dl-all {
   background: rgba(71,212,255,0.1);
   border: 1px solid rgba(71,212,255,0.3);
@@ -353,6 +374,14 @@ body::before {
         <input type="file" id="fileInput" accept=".pdf" multiple>
       </div>
 
+      <!-- Download all banner — verschijnt zodra er voltooide ZIPs zijn -->
+      <div id="dlAllBanner" style="display:none; margin-bottom:16px;">
+        <button class="btn-dl-banner" id="btnDlAll" onclick="downloadAllZips()">
+          <span id="dlAllIcon">⬇</span>
+          <span id="dlAllText">Alles downloaden</span>
+        </button>
+      </div>
+
       <!-- Queue -->
       <div class="file-queue" id="fileQueue"></div>
 
@@ -362,9 +391,6 @@ body::before {
       <div class="action-bar" id="actionBar">
         <button class="btn-process" id="btnProcess" onclick="processAll()">
           <span id="btnText">Verwerken &amp; ZIP Opslaan</span>
-        </button>
-        <button class="btn-dl-all" id="btnDlAll" onclick="downloadAllZips()" style="display:none;">
-          ⬇ Alles downloaden
         </button>
         <button class="btn-clear-all" onclick="clearAll()">Wissen</button>
       </div>
@@ -625,14 +651,11 @@ function render() {
   // Action bar
   document.getElementById('actionBar').classList.toggle('visible', files.length > 0);
   const doneCnt = files.filter(f => f.status === 'done' && f.zipBlob).length;
+  const dlAllBanner = document.getElementById('dlAllBanner');
   const dlAllBtn = document.getElementById('btnDlAll');
-  if (dlAllBtn) {
-    if (doneCnt > 1) {
-      dlAllBtn.style.display = 'flex';
-      if (!dlAllBtn.disabled) dlAllBtn.innerHTML = `⬇ Alles downloaden (${doneCnt})`;
-    } else {
-      dlAllBtn.style.display = 'none';
-    }
+  if (dlAllBanner) dlAllBanner.style.display = doneCnt > 1 ? 'block' : 'none';
+  if (dlAllBtn && !dlAllBtn.disabled) {
+    document.getElementById('dlAllText').textContent = `Alles downloaden (${doneCnt} ZIPs)`;
   }
   const btnProcess = document.getElementById('btnProcess');
   btnProcess.disabled = isProcessing || !files.some(f => f.status === 'queued');
@@ -685,15 +708,12 @@ function updateCard(fo) {
 
   document.getElementById('sumDone').textContent  = files.filter(f => f.status === 'done').length;
   document.getElementById('sumError').textContent = files.filter(f => f.status === 'error').length;
-  const dlAllBtn = document.getElementById('btnDlAll');
   const doneCntU = files.filter(f => f.status === 'done' && f.zipBlob).length;
-  if (dlAllBtn) {
-    if (doneCntU > 1) {
-      dlAllBtn.style.display = 'flex';
-      if (!dlAllBtn.disabled) dlAllBtn.innerHTML = `⬇ Alles downloaden (${doneCntU})`;
-    } else {
-      dlAllBtn.style.display = 'none';
-    }
+  const dlAllBannerU = document.getElementById('dlAllBanner');
+  const dlAllBtnU = document.getElementById('btnDlAll');
+  if (dlAllBannerU) dlAllBannerU.style.display = doneCntU > 1 ? 'block' : 'none';
+  if (dlAllBtnU && !dlAllBtnU.disabled) {
+    document.getElementById('dlAllText').textContent = `Alles downloaden (${doneCntU} ZIPs)`;
   }
 }
 
@@ -1108,19 +1128,23 @@ async function downloadAllZips() {
   if (!done.length) return;
 
   const btn = document.getElementById('btnDlAll');
+  const dlAllText = document.getElementById('dlAllText');
+  const dlAllIcon = document.getElementById('dlAllIcon');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner" style="border-top-color:var(--success)"></span> Bezig...';
+  dlAllIcon.innerHTML = '<span class="spinner" style="border-top-color:var(--success);width:16px;height:16px;border-width:2px;"></span>';
+  dlAllText.textContent = 'Downloaden...';
 
   // Download elke ZIP met korte vertraging ertussen
   for (let i = 0; i < done.length; i++) {
     const fo = done[i];
+    dlAllText.textContent = `Downloaden ${i + 1} van ${done.length}...`;
     await downloadFromStorage(fo.storagePath, fo.zipName);
-    // Kleine pauze tussen downloads zodat de browser ze niet blokkeert
     if (i < done.length - 1) await new Promise(r => setTimeout(r, 800));
   }
 
   btn.disabled = false;
-  btn.innerHTML = `⬇ Alles downloaden (${done.length})`;
+  dlAllIcon.textContent = '⬇';
+  dlAllText.textContent = `Alles downloaden (${done.length} ZIPs)`;
 }
 </script>
 </body>
