@@ -869,13 +869,40 @@ async function generateExcelBytes(data) {
     data._missingProjectnummer = true;
   }
 
-  // ── Aantallen in kolom J ──────────────────────────────────
+  // ── Aantallen in kolom J + bereken K-cache ───────────────
+  // Haal prijzen op uit I-kolom (staan in de template)
+  const prices = {};
+  for (let row = 13; row <= 67; row++) {
+    const m = xml.match(new RegExp(`<c r="I${row}"[^>]*><v>([^<]+)</v></c>`));
+    if (m) prices[row] = parseFloat(m[1]);
+  }
+
+  // Vul J-cellen (aantal) en update K-cached values tegelijk
   (data.productiestaat || []).forEach(item => {
     const row = CODE_ROW_MAP[item.code];
     if (row && item.aantal) {
       xml = setJCell(xml, row, item.aantal);
+      // Update cached waarde in K-cel zodat het totaal direct zichtbaar is
+      const calculated = (item.aantal * (prices[row] || 0)).toFixed(2);
+      xml = xml.replace(
+        new RegExp(`(<c r="K${row}"[^>]*>(?:<f[^/]*/>|<f[^>]*>[^<]*</f>))<v>[^<]*</v>(</c>)`),
+        `$1<v>${calculated}</v>$2`
+      );
     }
   });
+
+  // Update gecachede totaalwaarde in J71
+  let grandTotal = 0;
+  (data.productiestaat || []).forEach(item => {
+    const row = CODE_ROW_MAP[item.code];
+    if (row && item.aantal && prices[row]) {
+      grandTotal += item.aantal * prices[row];
+    }
+  });
+  xml = xml.replace(
+    /(<c r="J71"[^>]*>(?:<f[^/]*\/>|<f[^>]*>[^<]*<\/f>))<v>[^<]*<\/v>(<\/c>)/,
+    `$1<v>${grandTotal.toFixed(2)}</v>$2`
+  );
 
   // Schrijf aangepaste sheet terug — rest van de ZIP ongewijzigd
   templateZip.file('xl/worksheets/sheet1.xml', xml);
