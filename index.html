@@ -777,7 +777,7 @@ REGEL 1 = [CODE] [OMSCHRIJVING], REGEL 2 = [AANTAL]
       'anthropic-dangerous-direct-browser-access':'true'
     },
     body:JSON.stringify({
-      model:'claude-sonnet-4-20250514',
+      model:'claude-haiku-4-5-20251001',
       max_tokens:1500,
       messages:[{ role:'user', content:prompt }]
     })
@@ -1006,9 +1006,9 @@ async function processAll() {
 
   for (const fo of queued) {
     await processSingle(fo, apiKey);
-    // Wacht 3 seconden tussen PDFs om API overload te voorkomen
+    // Wacht 2 seconden tussen PDFs
     if (queued.indexOf(fo) < queued.length - 1) {
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
 
@@ -1042,18 +1042,18 @@ async function processSingle(fo, apiKey) {
   updateCard(fo);
 }
 
-async function extractWithAIRetry(pdfText, apiKey, fo, maxRetries = 5) {
+async function extractWithAIRetry(pdfText, apiKey, fo, maxRetries = 4) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await extractWithAI(pdfText, apiKey);
     } catch (err) {
       const overloaded = err.message.toLowerCase().includes('overloaded') ||
-                         err.message.includes('529') || err.message.includes('529');
+                         err.message.includes('529');
       if (overloaded && attempt < maxRetries) {
-        const waitSec = attempt * 15; // 15s, 30s, 45s, 60s oplopend
+        const waitSec = [20, 40, 60][attempt - 1] || 60;
         const el = document.getElementById(`card-${fo.id}`);
         if (el) el.querySelector('.fc-status').textContent =
-          `API overloaded — wacht ${waitSec}s (poging ${attempt}/${maxRetries})`;
+          `Server druk — wacht ${waitSec}s (poging ${attempt}/${maxRetries})`;
         await new Promise(r => setTimeout(r, waitSec * 1000));
       } else {
         throw err;
