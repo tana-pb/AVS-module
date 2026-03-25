@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AVS Module S&S</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -768,14 +768,13 @@ function generateExcel(data) {
   ws['F6'] = { v: data.plaats || '', t: 's' };
   ws['F7'] = { v: data.beschrijving || '', t: 's' };
 
-  // Projectnummer in B3 en F3 — geel als niet gevonden
+  // Projectnummer in B3 en F3 — placeholder als niet gevonden
   if (data.projectnummer) {
     ws['B3'] = { v: data.projectnummer, t: 's' };
     ws['F3'] = { v: data.projectnummer, t: 's' };
   } else {
-    const yellowStyle = { fill: { fgColor: { rgb: 'FFFF00' } } };
-    ws['B3'] = { v: '⚠ INVULLEN', t: 's', s: yellowStyle };
-    ws['F3'] = { v: '⚠ INVULLEN', t: 's', s: yellowStyle };
+    ws['B3'] = { v: '>>> PROJECTNUMMER INVULLEN <<<', t: 's' };
+    ws['F3'] = { v: '>>> PROJECTNUMMER INVULLEN <<<', t: 's' };
     data._missingProjectnummer = true;
   }
 
