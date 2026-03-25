@@ -314,10 +314,16 @@ body::before {
 
     <!-- ── UPLOAD TAB ── -->
     <div id="tabUpload">
-      <!-- API key -->
-      <div class="api-section">
-        <label>Anthropic API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+      <!-- API key wordt automatisch geladen, alleen admin kan hem instellen -->
+      <div id="apiKeyWarning" class="error-panel" style="display:none;">
+        ⚠ Geen API key ingesteld. Vraag de beheerder om de API key in te stellen.
+      </div>
+      <div id="adminApiPanel" style="display:none; margin-bottom:24px;">
+        <div class="api-section">
+          <label>Anthropic API Key (Admin)</label>
+          <input type="password" id="adminApiKey" placeholder="sk-ant-..." autocomplete="off">
+          <button onclick="saveApiKey()" style="background:var(--accent);color:#0a0a0f;border:none;border-radius:8px;padding:10px 16px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">Opslaan</button>
+        </div>
       </div>
 
       <!-- Drop zone -->
@@ -378,7 +384,41 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 let currentUser = null;
 
-// ── State ─────────────────────────────────────────────────────
+// ── Centralized API Key ───────────────────────────────────────
+let cachedApiKey = null;
+const ADMIN_EMAIL = 'tplaterobustos@hanab.nl';
+
+async function loadApiKey() {
+  const { data, error } = await supa.from('app_settings')
+    .select('value').eq('key', 'anthropic_api_key').single();
+
+  if (data?.value) {
+    cachedApiKey = data.value;
+    document.getElementById('apiKeyWarning').style.display = 'none';
+  } else {
+    cachedApiKey = null;
+    document.getElementById('apiKeyWarning').style.display = 'block';
+  }
+
+  // Toon admin panel alleen voor de beheerder
+  if (currentUser?.email === ADMIN_EMAIL) {
+    document.getElementById('adminApiPanel').style.display = 'block';
+    if (data?.value) document.getElementById('adminApiKey').value = data.value;
+  }
+}
+
+async function saveApiKey() {
+  const key = document.getElementById('adminApiKey').value.trim();
+  if (!key) return;
+  const { error } = await supa.from('app_settings')
+    .upsert({ key: 'anthropic_api_key', value: key });
+  if (error) { alert('Opslaan mislukt: ' + error.message); return; }
+  cachedApiKey = key;
+  document.getElementById('apiKeyWarning').style.display = 'none';
+  alert('✓ API key opgeslagen!');
+}
+
+
 let files = [];
 let isProcessing = false;
 
@@ -452,6 +492,7 @@ supa.auth.onAuthStateChange((event, session) => {
     document.getElementById('pageApp').classList.add('active');
     const name = currentUser.user_metadata?.name || currentUser.email;
     document.getElementById('userPill').textContent = name;
+    loadApiKey();
   } else {
     document.getElementById('pageApp').classList.remove('active');
     document.getElementById('pageAuth').classList.add('active');
@@ -923,8 +964,8 @@ async function deleteHistoryItem(id, path, btn) {
 // MAIN PROCESSING
 // ══════════════════════════════════════════════════════════════
 async function processAll() {
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if (!apiKey) { showGlobalError('Voer eerst een Anthropic API key in.'); return; }
+  if (!cachedApiKey) { showGlobalError('Geen API key beschikbaar. Vraag de beheerder om de API key in te stellen.'); return; }
+  const apiKey = cachedApiKey;
   document.getElementById('errorPanel').classList.remove('active');
 
   const queued = files.filter(f => f.status === 'queued');
