@@ -188,6 +188,23 @@ body::before {
 .btn-process:disabled { opacity:0.35; cursor:not-allowed; transform:none; }
 .btn-clear-all { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; color:var(--muted); font-family:'DM Sans',sans-serif; font-size:14px; cursor:pointer; transition:all 0.2s; white-space:nowrap; }
 .btn-clear-all:hover { border-color:var(--error); color:var(--error); }
+.btn-dl-all { background:var(--surface2); border:1px solid rgba(71,255,170,0.3); border-radius:var(--radius); padding:16px 20px; color:var(--success); font-family:'Syne',sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s; white-space:nowrap; display:flex; align-items:center; gap:8px; }
+.btn-dl-all:hover { background:rgba(71,255,170,0.1); border-color:var(--success); transform:translateY(-1px); }
+.btn-dl-all:disabled { opacity:0.4; cursor:not-allowed; transform:none; }
+.btn-dl-all {
+  background: rgba(71,212,255,0.1);
+  border: 1px solid rgba(71,212,255,0.3);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  color: var(--accent2);
+  font-family: 'Syne', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-dl-all:hover { background: rgba(71,212,255,0.18); border-color: var(--accent2); }
 
 /* ── Summary ── */
 .summary-bar { display:none; gap:12px; margin-bottom:24px; }
@@ -345,6 +362,9 @@ body::before {
       <div class="action-bar" id="actionBar">
         <button class="btn-process" id="btnProcess" onclick="processAll()">
           <span id="btnText">Verwerken &amp; ZIP Opslaan</span>
+        </button>
+        <button class="btn-dl-all" id="btnDlAll" onclick="downloadAllZips()" style="display:none;">
+          ⬇ Alles downloaden
         </button>
         <button class="btn-clear-all" onclick="clearAll()">Wissen</button>
       </div>
@@ -604,8 +624,18 @@ function render() {
 
   // Action bar
   document.getElementById('actionBar').classList.toggle('visible', files.length > 0);
-  const btn = document.getElementById('btnProcess');
-  btn.disabled = isProcessing || !files.some(f => f.status === 'queued');
+  const doneCnt = files.filter(f => f.status === 'done' && f.zipBlob).length;
+  const dlAllBtn = document.getElementById('btnDlAll');
+  if (dlAllBtn) {
+    if (doneCnt > 1) {
+      dlAllBtn.style.display = 'flex';
+      if (!dlAllBtn.disabled) dlAllBtn.innerHTML = `⬇ Alles downloaden (${doneCnt})`;
+    } else {
+      dlAllBtn.style.display = 'none';
+    }
+  }
+  const btnProcess = document.getElementById('btnProcess');
+  btnProcess.disabled = isProcessing || !files.some(f => f.status === 'queued');
   document.getElementById('btnText').innerHTML = isProcessing
     ? '<span class="spinner"></span> Verwerken...'
     : 'Verwerken &amp; ZIP Opslaan';
@@ -655,11 +685,39 @@ function updateCard(fo) {
 
   document.getElementById('sumDone').textContent  = files.filter(f => f.status === 'done').length;
   document.getElementById('sumError').textContent = files.filter(f => f.status === 'error').length;
+  const dlAllBtn = document.getElementById('btnDlAll');
+  const doneCntU = files.filter(f => f.status === 'done' && f.zipBlob).length;
+  if (dlAllBtn) {
+    if (doneCntU > 1) {
+      dlAllBtn.style.display = 'flex';
+      if (!dlAllBtn.disabled) dlAllBtn.innerHTML = `⬇ Alles downloaden (${doneCntU})`;
+    } else {
+      dlAllBtn.style.display = 'none';
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
-// PDF EXTRACTION
+// DOWNLOAD ALL ZIPs
 // ══════════════════════════════════════════════════════════════
+async function downloadAllZips() {
+  const done = files.filter(f => f.status === 'done' && f.storagePath);
+  if (!done.length) return;
+
+  const btn = document.getElementById('btnDlAll');
+  btn.textContent = `⏳ 0/${done.length} gedownload...`;
+  btn.disabled = true;
+
+  for (let i = 0; i < done.length; i++) {
+    const fo = done[i];
+    btn.textContent = `⏳ ${i + 1}/${done.length} downloaden...`;
+    await downloadFromStorage(fo.storagePath, fo.zipName);
+    if (i < done.length - 1) await new Promise(r => setTimeout(r, 800));
+  }
+
+  btn.textContent = '⬇ Alles downloaden';
+  btn.disabled = false;
+}
 async function extractPdfText(file) {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -903,6 +961,10 @@ async function processAll() {
 
   for (const fo of queued) {
     await processSingle(fo, apiKey);
+    // Wacht 3 seconden tussen PDFs om API overload te voorkomen
+    if (queued.indexOf(fo) < queued.length - 1) {
+      await new Promise(r => setTimeout(r, 3000));
+    }
   }
 
   isProcessing = false;
@@ -917,7 +979,7 @@ async function processSingle(fo, apiKey) {
     const pdfText = await extractPdfText(fo.file);
 
     fo.step = 1; updateCard(fo);
-    fo.data = await extractWithAI(pdfText, apiKey);
+    fo.data = await extractWithAIRetry(pdfText, apiKey, fo);
 
     fo.step = 2; updateCard(fo);
     const { path, zipName } = await buildAndUploadZip(fo);
@@ -935,10 +997,55 @@ async function processSingle(fo, apiKey) {
   updateCard(fo);
 }
 
+async function extractWithAIRetry(pdfText, apiKey, fo, maxRetries = 5) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await extractWithAI(pdfText, apiKey);
+    } catch (err) {
+      const overloaded = err.message.toLowerCase().includes('overloaded') ||
+                         err.message.includes('529') || err.message.includes('529');
+      if (overloaded && attempt < maxRetries) {
+        const waitSec = attempt * 15; // 15s, 30s, 45s, 60s oplopend
+        const el = document.getElementById(`card-${fo.id}`);
+        if (el) el.querySelector('.fc-status').textContent =
+          `API overloaded — wacht ${waitSec}s (poging ${attempt}/${maxRetries})`;
+        await new Promise(r => setTimeout(r, waitSec * 1000));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 function showGlobalError(msg) {
   const ep = document.getElementById('errorPanel');
   ep.textContent = '⚠ ' + msg;
   ep.classList.add('active');
+}
+
+async function downloadAllZips() {
+  const done = files.filter(f => f.status === 'done' && f.zipBlob);
+  if (!done.length) return;
+
+  const btn = document.getElementById('btnDlAll');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="border-top-color:var(--success)"></span> Bezig...';
+
+  // Download elke ZIP met korte vertraging ertussen
+  for (let i = 0; i < done.length; i++) {
+    const fo = done[i];
+    const adres  = (fo.data?.adres || fo.file.name.replace('.pdf','')).replace(/[^a-zA-Z0-9]/g,'_');
+    const datum  = (fo.data?.uitvoerdatum || new Date().toISOString().slice(0,10)).replace(/-/g,'');
+    const url    = URL.createObjectURL(fo.zipBlob);
+    const a      = Object.assign(document.createElement('a'), { href:url, download:`AVS_${adres}_${datum}.zip` });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    // Kleine pauze tussen downloads zodat de browser ze niet blokkeert
+    if (i < done.length - 1) await new Promise(r => setTimeout(r, 600));
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = `⬇ Alles downloaden (${done.length})`;
 }
 </script>
 </body>
