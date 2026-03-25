@@ -880,6 +880,14 @@ async function generateExcelBytes(data) {
   // Schrijf aangepaste sheet terug — rest van de ZIP ongewijzigd
   templateZip.file('xl/worksheets/sheet1.xml', xml);
 
+  // Verwijder calcChain zodat Excel alle formules herberekent bij openen
+  templateZip.remove('xl/calcChain.xml');
+
+  // Verwijder calcChain referentie uit [Content_Types].xml
+  let contentTypes = await templateZip.file('[Content_Types].xml').async('string');
+  contentTypes = contentTypes.replace(/<Override[^>]*calcChain[^>]*\/>/g, '');
+  templateZip.file('[Content_Types].xml', contentTypes);
+
   return await templateZip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 }
 
