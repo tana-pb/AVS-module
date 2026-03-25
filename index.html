@@ -740,22 +740,6 @@ REGEL 1 = [CODE] [OMSCHRIJVING], REGEL 2 = [AANTAL]
 // EXCEL GENERATION — template-based (behoudt exacte opmaak)
 // ══════════════════════════════════════════════════════════════
 
-// Code → rij mapping in kolom J (Aantal)
-const CODE_ROW_MAP = {
-  'STRM11.10':13,'STRM11.20':14,'STRM11.21':15,'STRM11.30':16,
-  'STRM11.80':19,'STRM11.81':20,'STRM11.90':23,'STRM11.91':24,
-  'STRC2.00':27,'STRC2.10':28,'STRC2.30':29,
-  'STRM3.00':32,'STRM3.10':33,'STRM3.15':34,'STRM3.20':35,
-  'STRM3.30':36,'STRM3.40':37,'STRC3.15':34,'STRC3.71':38,
-  'STRC4.00':41,'STRC4.01':42,'STRC4.10':43,'STRC4.11':44,
-  'STRM4.23':45,'STRC4.24':46,'STRC4.25':47,'STRC4.26':48,
-  'STRC4.60':49,'STRC4.61':50,
-  'STRM6.00':53,'STRM6.10':54,
-  'STRM8.00':57,'STRM8.01':58,'STRM8.10':59,'STRM8.11':60,
-  'STRM8.15':61,'STRM8.16':62,'STRM8.17':63,
-  'STRM0.42':66,'C024':67
-};
-
 function generateExcel(data) {
   // Laad de originele template (behoudt alle opmaak, kleuren, borders etc.)
   const wb = XLSX.read(TEMPLATE_B64, { type: 'base64' });
