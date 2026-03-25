@@ -798,88 +798,88 @@ REGEL 1 = [CODE] [OMSCHRIJVING], REGEL 2 = [AANTAL]
 // EXCEL GENERATION — directe ZIP-manipulatie (behoudt logo + opmaak 100%)
 // ══════════════════════════════════════════════════════════════
 
-// Escaped XML string
 function xmlEsc(s) {
   return String(s || '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Vervang een lege cel door een cel met inline string waarde
-// Patroon: <c r="F2" s="412"/>  →  <c r="F2" s="412" t="inlineStr"><is><t>waarde</t></is></c>
+// Vervang een lege of gevulde cel met een inline string waarde
+// Werkt voor alle patronen: zelfsluitend, met <v>, met <f>, etc.
 function setCellInline(xml, cellRef, value) {
   const esc = xmlEsc(value);
-  // Lege zelfsluitende cel
+  const replacement = ` t="inlineStr"><is><t>${esc}</t></is></c>`;
+
+  // Patroon 1: lege zelfsluitende cel  <c r="F2" s="412"/>
   xml = xml.replace(
-    new RegExp(`(<c r="${cellRef}"[^/]*)/>`),
-    `$1 t="inlineStr"><is><t>${esc}</t></is></c>`
+    new RegExp(`(<c r="${cellRef}"(?:\\s+s="\\d+")?\\s*)/>`),
+    `$1${replacement}`
   );
-  // Cel met bestaande waarde (shared string of inline)
+
+  // Patroon 2: cel met inhoud  <c r="F2" s="412">...</c>
   xml = xml.replace(
-    new RegExp(`(<c r="${cellRef}"[^>]*t="[^"]*"[^>]*>).*?</c>`),
-    `<c r="${cellRef}" s="$1" t="inlineStr"><is><t>${esc}</t></is></c>`
+    new RegExp(`(<c r="${cellRef}"(?:\\s+s="\\d+")?)[^>]*>(?:(?!</c>)[\\s\\S])*</c>`),
+    `$1${replacement}`
   );
-  // Tweede poging: cel met stijl maar zonder type, met <v>
-  xml = xml.replace(
-    new RegExp(`(<c r="${cellRef}" s="(\\d+)")[^>]*>[^<]*<v>[^<]*</v>[^<]*</c>`),
-    `<c r="${cellRef}" s="$2" t="inlineStr"><is><t>${esc}</t></is></c>`
-  );
+
   return xml;
 }
 
-// Zet een getal in een lege Aantal-cel (kolom J)
+// Zet een numerieke waarde in een J-cel (Aantal kolom)
 function setJCell(xml, row, value) {
-  const cellRef = `J${row}`;
-  // Lege cel: <c r="J16" s="10"/>
+  const ref = `J${row}`;
+
+  // Patroon 1: lege zelfsluitende cel  <c r="J16" s="10"/>
   xml = xml.replace(
-    new RegExp(`(<c r="${cellRef}" s="(\\d+)")/>`),
-    `<c r="${cellRef}" s="$2"><v>${value}</v></c>`
+    new RegExp(`(<c r="${ref}" s="(\\d+)")/>`),
+    `<c r="${ref}" s="$2"><v>${value}</v></c>`
   );
-  // Cel al met waarde: vervang de <v>
+
+  // Patroon 2: cel met bestaande <v>  <c r="J16" s="10"><v>0</v></c>
   xml = xml.replace(
-    new RegExp(`(<c r="${cellRef}" s="\\d+"[^>]*>)<v>[^<]*</v>(</c>)`),
+    new RegExp(`(<c r="${ref}" s="\\d+"[^>]*>)<v>[^<]*</v>(</c>)`),
     `$1<v>${value}</v>$2`
   );
+
   return xml;
 }
 
 async function generateExcelBytes(data) {
-  // Laad template als ZIP
+  // Laad template als ZIP — alle opmaak, logo en drawings blijven intact
   const templateBytes = Uint8Array.from(atob(TEMPLATE_B64), c => c.charCodeAt(0));
   const templateZip   = await JSZip.loadAsync(templateBytes);
 
   // Lees sheet1.xml
-  let sheet1 = await templateZip.file('xl/worksheets/sheet1.xml').async('string');
+  let xml = await templateZip.file('xl/worksheets/sheet1.xml').async('string');
 
-  // ── Vul de datavelden in ──────────────────────────────────
-  sheet1 = setCellInline(sheet1, 'F2', data.uitvoerdatum || '');
-  sheet1 = setCellInline(sheet1, 'F4', data.postcode || '');
-  sheet1 = setCellInline(sheet1, 'F5', data.adres || '');
-  sheet1 = setCellInline(sheet1, 'F6', data.plaats || '');
-  sheet1 = setCellInline(sheet1, 'F7', data.beschrijving || '');
+  // ── Datavelden invullen ───────────────────────────────────
+  xml = setCellInline(xml, 'F2', data.uitvoerdatum || '');
+  xml = setCellInline(xml, 'F4', data.postcode || '');
+  xml = setCellInline(xml, 'F5', data.adres || '');
+  xml = setCellInline(xml, 'F6', data.plaats || '');
+  xml = setCellInline(xml, 'F7', data.beschrijving || '');
 
   // Projectnummer
   if (data.projectnummer) {
-    sheet1 = setCellInline(sheet1, 'B3', data.projectnummer);
-    sheet1 = setCellInline(sheet1, 'F3', data.projectnummer);
+    xml = setCellInline(xml, 'B3', data.projectnummer);
+    xml = setCellInline(xml, 'F3', data.projectnummer);
   } else {
-    sheet1 = setCellInline(sheet1, 'B3', '>>> PROJECTNUMMER INVULLEN <<<');
-    sheet1 = setCellInline(sheet1, 'F3', '>>> PROJECTNUMMER INVULLEN <<<');
+    xml = setCellInline(xml, 'B3', '>>> PROJECTNUMMER INVULLEN <<<');
+    xml = setCellInline(xml, 'F3', '>>> PROJECTNUMMER INVULLEN <<<');
     data._missingProjectnummer = true;
   }
 
-  // ── Vul aantallen in kolom J ──────────────────────────────
+  // ── Aantallen in kolom J ──────────────────────────────────
   (data.productiestaat || []).forEach(item => {
     const row = CODE_ROW_MAP[item.code];
     if (row && item.aantal) {
-      sheet1 = setJCell(sheet1, row, item.aantal);
+      xml = setJCell(xml, row, item.aantal);
     }
   });
 
-  // Schrijf sheet1 terug
-  templateZip.file('xl/worksheets/sheet1.xml', sheet1);
+  // Schrijf aangepaste sheet terug — rest van de ZIP ongewijzigd
+  templateZip.file('xl/worksheets/sheet1.xml', xml);
 
-  // Genereer de XLSX bytes — alle andere bestanden (logo, styles, drawings) ongewijzigd
   return await templateZip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 }
 
