@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AVS Module S&S</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ── Reset & Vars ── */
+:root {
+  --bg: #0a0a0f;
+  --surface: #111118;
+  --surface2: #1a1a24;
+  --border: #2a2a3a;
+  --accent: #e8ff47;
+  --accent2: #47d4ff;
+  --text: #f0f0f8;
+  --muted: #6b6b85;
+  --success: #47ffaa;
+  --error: #ff4760;
+  --radius: 12px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; min-height:100vh; overflow-x:hidden; }
+body::before {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(rgba(232,255,71,0.03) 1px,transparent 1px), linear-gradient(90deg,rgba(232,255,71,0.03) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+
+/* ── Layout ── */
+.page { display:none; position:relative; z-index:1; }
+.page.active { display:block; }
+.container { max-width:920px; margin:0 auto; padding:48px 24px 80px; }
+
+/* ── Auth page ── */
+.auth-wrap {
+  min-height:100vh; display:flex; align-items:center; justify-content:center;
+  position:relative; z-index:1; padding:24px;
+}
+.auth-card {
+  background:var(--surface); border:1px solid var(--border); border-radius:20px;
+  padding:48px 40px; width:100%; max-width:420px;
+}
+.auth-logo { margin-bottom:32px; }
+.auth-logo h1 { font-family:'Syne',sans-serif; font-size:11px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent); margin-bottom:6px; }
+.auth-logo h2 { font-family:'Syne',sans-serif; font-size:28px; font-weight:800; color:var(--text); }
+.auth-logo h2 span { color:var(--accent); }
+
+.auth-tabs { display:flex; gap:0; margin-bottom:32px; background:var(--surface2); border-radius:10px; padding:4px; }
+.auth-tab {
+  flex:1; padding:9px; text-align:center; border-radius:7px; cursor:pointer;
+  font-family:'Syne',sans-serif; font-size:13px; font-weight:600; color:var(--muted);
+  transition:all 0.2s;
+}
+.auth-tab.active { background:var(--accent); color:#0a0a0f; }
+
+.form-group { margin-bottom:18px; }
+.form-group label { display:block; font-family:'DM Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); margin-bottom:8px; }
+.form-group input {
+  width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:9px;
+  padding:12px 16px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:14px;
+  outline:none; transition:border-color 0.2s;
+}
+.form-group input:focus { border-color:var(--accent); }
+.form-group input::placeholder { color:var(--muted); }
+
+.btn-auth {
+  width:100%; background:var(--accent); color:#0a0a0f; border:none; border-radius:10px;
+  padding:14px; font-family:'Syne',sans-serif; font-size:15px; font-weight:700;
+  cursor:pointer; transition:all 0.2s; margin-top:4px;
+}
+.btn-auth:hover { background:#f0ff60; transform:translateY(-1px); }
+.btn-auth:disabled { opacity:0.4; cursor:not-allowed; transform:none; }
+
+.auth-msg { margin-top:16px; text-align:center; font-size:13px; border-radius:8px; padding:10px 14px; display:none; }
+.auth-msg.error { background:rgba(255,71,96,0.1); color:var(--error); display:block; }
+.auth-msg.success { background:rgba(71,255,170,0.1); color:var(--success); display:block; }
+
+/* ── App Header ── */
+.app-header {
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:40px; gap:16px;
+}
+.logo-block h1 { font-family:'Syne',sans-serif; font-size:11px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase; color:var(--accent); margin-bottom:5px; }
+.logo-block h2 { font-family:'Syne',sans-serif; font-size:32px; font-weight:800; line-height:1; }
+.logo-block h2 span { color:var(--accent); }
+
+.header-right { display:flex; align-items:center; gap:12px; }
+.user-pill {
+  background:var(--surface2); border:1px solid var(--border); border-radius:100px;
+  padding:8px 16px; font-family:'DM Mono',monospace; font-size:11px; color:var(--muted);
+}
+.btn-logout {
+  background:none; border:1px solid var(--border); border-radius:8px;
+  padding:8px 14px; color:var(--muted); font-size:12px; cursor:pointer;
+  transition:all 0.2s; font-family:'DM Sans',sans-serif;
+}
+.btn-logout:hover { border-color:var(--error); color:var(--error); }
+
+/* ── Tabs ── */
+.main-tabs { display:flex; gap:4px; margin-bottom:32px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:5px; }
+.main-tab {
+  flex:1; padding:10px; text-align:center; border-radius:8px; cursor:pointer;
+  font-family:'Syne',sans-serif; font-size:13px; font-weight:600; color:var(--muted);
+  transition:all 0.2s;
+}
+.main-tab.active { background:var(--accent); color:#0a0a0f; }
+
+/* ── API Key ── */
+.api-section {
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  padding:16px 20px; margin-bottom:24px; display:flex; align-items:center; gap:14px;
+}
+.api-section label { font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; white-space:nowrap; }
+.api-section input {
+  flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+  padding:10px 14px; color:var(--text); font-family:'DM Mono',monospace; font-size:13px; outline:none; transition:border-color 0.2s;
+}
+.api-section input:focus { border-color:var(--accent); }
+.api-section input::placeholder { color:var(--muted); }
+
+/* ── Upload ── */
+.upload-zone {
+  border:2px dashed var(--border); border-radius:var(--radius); padding:48px 40px;
+  text-align:center; cursor:pointer; transition:all 0.25s; background:var(--surface);
+  position:relative; overflow:hidden; margin-bottom:24px;
+}
+.upload-zone::before {
+  content:''; position:absolute; inset:0; opacity:0; transition:opacity 0.3s;
+  background:radial-gradient(ellipse at 50% 0%, rgba(232,255,71,0.07) 0%, transparent 70%);
+}
+.upload-zone:hover::before, .upload-zone.drag-over::before { opacity:1; }
+.upload-zone:hover, .upload-zone.drag-over { border-color:var(--accent); background:var(--surface2); }
+.upload-icon { width:52px; height:52px; margin:0 auto 16px; background:var(--surface2); border:1px solid var(--border); border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:22px; transition:all 0.25s; }
+.upload-zone:hover .upload-icon { border-color:var(--accent); background:rgba(232,255,71,0.08); }
+.upload-title { font-family:'Syne',sans-serif; font-size:17px; font-weight:700; margin-bottom:5px; }
+.upload-sub { color:var(--muted); font-size:13px; }
+.upload-sub strong { color:var(--accent2); font-weight:500; }
+#fileInput { display:none; }
+
+/* ── File cards ── */
+.file-queue { display:flex; flex-direction:column; gap:10px; margin-bottom:24px; }
+.file-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; transition:border-color 0.3s; animation:fadeIn 0.3s ease; }
+.file-card.processing { border-color:rgba(71,212,255,0.5); }
+.file-card.done       { border-color:rgba(71,255,170,0.4); }
+.file-card.error      { border-color:rgba(255,71,96,0.4); }
+.fc-progress { height:3px; background:var(--border); position:relative; overflow:hidden; }
+.fc-progress-bar { position:absolute; left:0; top:0; bottom:0; background:var(--accent2); transition:width 0.5s ease; }
+.file-card.done  .fc-progress-bar { background:var(--success); width:100% !important; }
+.file-card.error .fc-progress-bar { background:var(--error); width:100% !important; }
+.file-card-header { display:flex; align-items:center; gap:14px; padding:15px 18px; }
+.fc-icon { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; background:var(--surface2); border:1px solid var(--border); }
+.file-card.processing .fc-icon { background:rgba(71,212,255,0.1); border-color:rgba(71,212,255,0.25); }
+.file-card.done       .fc-icon { background:rgba(71,255,170,0.1); border-color:rgba(71,255,170,0.25); }
+.file-card.error      .fc-icon { background:rgba(255,71,96,0.1);  border-color:rgba(255,71,96,0.25); }
+.fc-info { flex:1; min-width:0; }
+.fc-name { font-family:'DM Mono',monospace; font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:2px; }
+.fc-status { font-size:12px; color:var(--muted); }
+.file-card.processing .fc-status { color:var(--accent2); }
+.file-card.done       .fc-status { color:var(--success); }
+.file-card.error      .fc-status { color:var(--error); }
+.fc-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.btn-remove { background:none; border:1px solid var(--border); border-radius:6px; padding:5px 10px; color:var(--muted); font-size:11px; cursor:pointer; transition:all 0.2s; font-family:'DM Sans',sans-serif; }
+.btn-remove:hover { border-color:var(--error); color:var(--error); }
+.btn-dl-zip { background:rgba(71,255,170,0.1); border:1px solid rgba(71,255,170,0.3); border-radius:6px; padding:6px 14px; color:var(--success); font-size:11px; font-weight:700; cursor:pointer; transition:all 0.2s; font-family:'Syne',sans-serif; white-space:nowrap; }
+.btn-dl-zip:hover { background:rgba(71,255,170,0.18); border-color:var(--success); }
+.fc-steps { display:flex; align-items:center; gap:6px; padding:9px 18px 11px; border-top:1px solid var(--border); }
+.fc-step { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--muted); }
+.fc-step-dot { width:17px; height:17px; border-radius:50%; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:9px; flex-shrink:0; transition:all 0.25s; }
+.fc-step.active .fc-step-dot { border-color:var(--accent2); color:var(--accent2); animation:pulse 1.2s ease-in-out infinite; }
+.fc-step.done   .fc-step-dot { background:var(--success); border-color:var(--success); color:#0a0a0f; }
+.fc-step.active { color:var(--text); }
+.fc-step.done   { color:var(--success); }
+.fc-divider { flex:1; height:1px; background:var(--border); max-width:20px; }
+
+/* ── Action bar ── */
+.action-bar { display:none; gap:12px; margin-bottom:24px; }
+.action-bar.visible { display:flex; }
+.btn-process { flex:1; background:var(--accent); color:#0a0a0f; border:none; border-radius:var(--radius); padding:16px 24px; font-family:'Syne',sans-serif; font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:10px; }
+.btn-process:hover { background:#f0ff60; transform:translateY(-1px); }
+.btn-process:disabled { opacity:0.35; cursor:not-allowed; transform:none; }
+.btn-clear-all { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; color:var(--muted); font-family:'DM Sans',sans-serif; font-size:14px; cursor:pointer; transition:all 0.2s; white-space:nowrap; }
+.btn-clear-all:hover { border-color:var(--error); color:var(--error); }
+
+/* ── Summary ── */
+.summary-bar { display:none; gap:12px; margin-bottom:24px; }
+.summary-bar.active { display:flex; }
+.sum-card { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 18px; text-align:center; }
+.sum-val { font-family:'Syne',sans-serif; font-size:26px; font-weight:800; margin-bottom:3px; }
+.sum-val.green  { color:var(--success); }
+.sum-val.yellow { color:var(--accent); }
+.sum-val.red    { color:var(--error); }
+.sum-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.1em; font-family:'DM Mono',monospace; }
+
+/* ── History tab ── */
+.history-list { display:flex; flex-direction:column; gap:10px; }
+.history-empty { text-align:center; padding:60px 20px; color:var(--muted); font-size:14px; }
+.history-empty .he-icon { font-size:40px; margin-bottom:12px; }
+
+.hist-card {
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  padding:16px 20px; display:flex; align-items:center; gap:16px;
+  animation:fadeIn 0.3s ease;
+}
+.hist-icon { width:40px; height:40px; border-radius:10px; background:rgba(71,255,170,0.1); border:1px solid rgba(71,255,170,0.2); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+.hist-info { flex:1; min-width:0; }
+.hist-name { font-family:'DM Mono',monospace; font-size:12px; font-weight:500; margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hist-meta { font-size:12px; color:var(--muted); }
+.hist-expires { font-size:11px; color:var(--accent); font-family:'DM Mono',monospace; }
+.hist-expired { font-size:11px; color:var(--error); font-family:'DM Mono',monospace; }
+.hist-actions { display:flex; gap:8px; align-items:center; }
+.btn-hist-dl { background:rgba(71,255,170,0.1); border:1px solid rgba(71,255,170,0.3); border-radius:6px; padding:7px 14px; color:var(--success); font-size:11px; font-weight:700; cursor:pointer; transition:all 0.2s; font-family:'Syne',sans-serif; }
+.btn-hist-dl:hover { background:rgba(71,255,170,0.18); }
+.btn-hist-del { background:none; border:1px solid var(--border); border-radius:6px; padding:7px 10px; color:var(--muted); font-size:11px; cursor:pointer; transition:all 0.2s; }
+.btn-hist-del:hover { border-color:var(--error); color:var(--error); }
+
+.loading-hist { text-align:center; padding:40px; color:var(--muted); font-size:13px; }
+
+/* ── Global error ── */
+.error-panel { background:rgba(255,71,96,0.06); border:1px solid rgba(255,71,96,0.2); border-radius:var(--radius); padding:13px 18px; display:none; margin-bottom:20px; font-size:13px; color:var(--error); }
+.error-panel.active { display:block; }
+
+/* ── Misc ── */
+.spinner { width:14px; height:14px; border:2px solid rgba(10,10,15,0.3); border-top-color:#0a0a0f; border-radius:50%; animation:spin 0.7s linear infinite; display:inline-block; }
+.spinner-muted { width:20px; height:20px; border:2px solid var(--border); border-top-color:var(--muted); border-radius:50%; animation:spin 0.7s linear infinite; display:inline-block; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+@keyframes pulse { 0%,100% { box-shadow:0 0 0 0 rgba(71,212,255,0.4); } 50% { box-shadow:0 0 0 5px rgba(71,212,255,0); } }
+.footer { text-align:center; margin-top:56px; color:var(--muted); font-size:11px; font-family:'DM Mono',monospace; letter-spacing:0.05em; }
+@media(max-width:600px) { .app-header { flex-direction:column; } .action-bar.visible { flex-direction:column; } .summary-bar { flex-wrap:wrap; } .auth-card { padding:32px 24px; } }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════
+     AUTH PAGE
+══════════════════════════════════════════════════ -->
+<div id="pageAuth" class="page active">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <h1>Schades &amp; Storingen</h1>
+        <h2>AVS <span>Module S&amp;S</span></h2>
+      </div>
+
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Inloggen</div>
+        <div class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">Registreren</div>
+      </div>
+
+      <!-- Login form -->
+      <div id="formLogin">
+        <div class="form-group">
+          <label>E-mailadres</label>
+          <input type="email" id="loginEmail" placeholder="naam@bedrijf.nl">
+        </div>
+        <div class="form-group">
+          <label>Wachtwoord</label>
+          <input type="password" id="loginPassword" placeholder="••••••••">
+        </div>
+        <button class="btn-auth" id="btnLogin" onclick="doLogin()">Inloggen</button>
+      </div>
+
+      <!-- Register form -->
+      <div id="formRegister" style="display:none;">
+        <div class="form-group">
+          <label>Naam</label>
+          <input type="text" id="regName" placeholder="Jan de Vries">
+        </div>
+        <div class="form-group">
+          <label>E-mailadres</label>
+          <input type="email" id="regEmail" placeholder="naam@bedrijf.nl">
+        </div>
+        <div class="form-group">
+          <label>Wachtwoord</label>
+          <input type="password" id="regPassword" placeholder="Minimaal 8 tekens">
+        </div>
+        <button class="btn-auth" id="btnRegister" onclick="doRegister()">Account aanmaken</button>
+      </div>
+
+      <div class="auth-msg" id="authMsg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     MAIN APP PAGE
+══════════════════════════════════════════════════ -->
+<div id="pageApp" class="page">
+  <div class="container">
+
+    <!-- Header -->
+    <div class="app-header">
+      <div class="logo-block">
+        <h1>Schades &amp; Storingen</h1>
+        <h2>AVS <span>Module S&amp;S</span></h2>
+      </div>
+      <div class="header-right">
+        <div class="user-pill" id="userPill">—</div>
+        <button class="btn-logout" onclick="doLogout()">Uitloggen</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="main-tabs">
+      <div class="main-tab active" id="mtUpload" onclick="switchMainTab('upload')">📤 Verwerken</div>
+      <div class="main-tab" id="mtHistory" onclick="switchMainTab('history')">🗂 Mijn ZIPs</div>
+    </div>
+
+    <!-- ── UPLOAD TAB ── -->
+    <div id="tabUpload">
+      <!-- API key -->
+      <div class="api-section">
+        <label>Anthropic API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+      </div>
+
+      <!-- Drop zone -->
+      <div class="upload-zone" id="uploadZone">
+        <div class="upload-icon">📂</div>
+        <div class="upload-title">Sleep PDF bestanden hierheen</div>
+        <div class="upload-sub">of klik om te kiezen · <strong>meerdere PDFs tegelijk</strong> ondersteund</div>
+        <input type="file" id="fileInput" accept=".pdf" multiple>
+      </div>
+
+      <!-- Queue -->
+      <div class="file-queue" id="fileQueue"></div>
+
+      <div class="error-panel" id="errorPanel"></div>
+
+      <!-- Action bar -->
+      <div class="action-bar" id="actionBar">
+        <button class="btn-process" id="btnProcess" onclick="processAll()">
+          <span id="btnText">Verwerken &amp; ZIP Opslaan</span>
+        </button>
+        <button class="btn-clear-all" onclick="clearAll()">Wissen</button>
+      </div>
+
+      <!-- Summary -->
+      <div class="summary-bar" id="summaryBar">
+        <div class="sum-card"><div class="sum-val yellow" id="sumTotal">0</div><div class="sum-label">Totaal</div></div>
+        <div class="sum-card"><div class="sum-val green"  id="sumDone">0</div><div class="sum-label">Verwerkt</div></div>
+        <div class="sum-card"><div class="sum-val red"    id="sumError">0</div><div class="sum-label">Fout</div></div>
+      </div>
+    </div>
+
+    <!-- ── HISTORY TAB ── -->
+    <div id="tabHistory" style="display:none;">
+      <div id="historyContent">
+        <div class="loading-hist"><span class="spinner-muted"></span></div>
+      </div>
+    </div>
+
+    <div class="footer">AVS Module S&amp;S · v3.0 · ZIPs bewaard 5 dagen</div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// ⚠️  VERVANG DEZE TWEE WAARDEN MET JOUW SUPABASE GEGEVENS
+// ══════════════════════════════════════════════════════════════
+const SUPABASE_URL    = 'JOUW_SUPABASE_URL_HIER';
+const SUPABASE_ANON   = 'JOUW_SUPABASE_ANON_KEY_HIER';
+// ══════════════════════════════════════════════════════════════
+
+const BUCKET          = 'avs-zips';
+const EXPIRY_DAYS     = 5;
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ── Supabase client ───────────────────────────────────────────
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let currentUser = null;
+
+// ── State ─────────────────────────────────────────────────────
+let files = [];
+let isProcessing = false;
+
+const CODE_ROW_MAP = {
+  'STRM11.10':13,'STRM11.20':14,'STRM11.21':15,'STRM11.30':16,
+  'STRM11.80':19,'STRM11.81':20,'STRM11.90':23,'STRM11.91':24,
+  'STRC2.00':27,'STRC2.10':28,'STRC2.30':29,
+  'STRM3.00':32,'STRM3.10':33,'STRM3.15':34,'STRM3.20':35,
+  'STRM3.30':36,'STRM3.40':37,'STRC3.15':34,'STRC3.71':38,
+  'STRC4.00':41,'STRC4.01':42,'STRC4.10':43,'STRC4.11':44,
+  'STRM4.23':45,'STRC4.24':46,'STRC4.25':47,'STRC4.26':48,
+  'STRC4.60':49,'STRC4.61':50,
+  'STRM6.00':53,'STRM6.10':54,
+  'STRM8.00':57,'STRM8.01':58,'STRM8.10':59,'STRM8.11':60,
+  'STRM8.15':61,'STRM8.16':62,'STRM8.17':63,
+  'STRM0.42':66,'C024':67
+};
+
+// ══════════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════════
+function switchAuthTab(tab) {
+  document.getElementById('formLogin').style.display    = tab === 'login'    ? 'block' : 'none';
+  document.getElementById('formRegister').style.display = tab === 'register' ? 'block' : 'none';
+  document.getElementById('tabLogin').classList.toggle('active',    tab === 'login');
+  document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
+  clearAuthMsg();
+}
+
+function showAuthMsg(msg, type) {
+  const el = document.getElementById('authMsg');
+  el.textContent = msg;
+  el.className = `auth-msg ${type}`;
+}
+function clearAuthMsg() { document.getElementById('authMsg').className = 'auth-msg'; }
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  if (!email || !pass) { showAuthMsg('Vul e-mail en wachtwoord in.', 'error'); return; }
+  const btn = document.getElementById('btnLogin');
+  btn.disabled = true; btn.textContent = 'Bezig...';
+  const { error } = await supa.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = 'Inloggen';
+  if (error) showAuthMsg(error.message, 'error');
+}
+
+async function doRegister() {
+  const name  = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass  = document.getElementById('regPassword').value;
+  if (!name || !email || !pass) { showAuthMsg('Vul alle velden in.', 'error'); return; }
+  if (pass.length < 8) { showAuthMsg('Wachtwoord moet minimaal 8 tekens zijn.', 'error'); return; }
+  const btn = document.getElementById('btnRegister');
+  btn.disabled = true; btn.textContent = 'Bezig...';
+  const { error } = await supa.auth.signUp({ email, password: pass, options: { data: { name } } });
+  btn.disabled = false; btn.textContent = 'Account aanmaken';
+  if (error) showAuthMsg(error.message, 'error');
+  else showAuthMsg('Account aangemaakt! Controleer je e-mail om te bevestigen, dan kun je inloggen.', 'success');
+}
+
+async function doLogout() {
+  await supa.auth.signOut();
+}
+
+// Auth state listener
+supa.auth.onAuthStateChange((event, session) => {
+  currentUser = session?.user ?? null;
+  if (currentUser) {
+    document.getElementById('pageAuth').classList.remove('active');
+    document.getElementById('pageApp').classList.add('active');
+    const name = currentUser.user_metadata?.name || currentUser.email;
+    document.getElementById('userPill').textContent = name;
+  } else {
+    document.getElementById('pageApp').classList.remove('active');
+    document.getElementById('pageAuth').classList.add('active');
+    files = [];
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════════════
+function switchMainTab(tab) {
+  document.getElementById('tabUpload').style.display  = tab === 'upload'  ? 'block' : 'none';
+  document.getElementById('tabHistory').style.display = tab === 'history' ? 'block' : 'none';
+  document.getElementById('mtUpload').classList.toggle('active',  tab === 'upload');
+  document.getElementById('mtHistory').classList.toggle('active', tab === 'history');
+  if (tab === 'history') loadHistory();
+}
+
+// ══════════════════════════════════════════════════════════════
+// UPLOAD & FILE MANAGEMENT
+// ══════════════════════════════════════════════════════════════
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { addFiles(Array.from(e.target.files)); fileInput.value = ''; });
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.classList.remove('drag-over');
+  addFiles(Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf'));
+});
+
+function addFiles(newFiles) {
+  newFiles.forEach(f => {
+    if (files.find(x => x.file.name === f.name && x.file.size === f.size)) return;
+    files.push({ file:f, id:crypto.randomUUID(), status:'queued', step:-1, data:null, zipBlob:null, storagePath:null, errorMsg:null });
+  });
+  render();
+}
+
+function removeFile(id) {
+  if (isProcessing && files.find(f => f.id === id)?.status === 'processing') return;
+  files = files.filter(f => f.id !== id);
+  render();
+}
+
+function clearAll() {
+  if (isProcessing) return;
+  files = [];
+  render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════════════════════
+function render() {
+  const queue = document.getElementById('fileQueue');
+  queue.innerHTML = '';
+
+  files.forEach(fo => {
+    const card = document.createElement('div');
+    card.className = `file-card ${fo.status}`;
+    card.id = `card-${fo.id}`;
+
+    const icons   = { queued:'📄', processing:'⚙️', done:'✅', error:'❌' };
+    const barW    = { queued:0, processing:[15,55,85][fo.step]||15, done:100, error:100 }[fo.status];
+    const statTxt = {
+      queued:     'Wacht op verwerking...',
+      processing: ['PDF lezen...','AI analyseert...','ZIP opslaan in cloud...'][fo.step] || 'Bezig...',
+      done:       `Opgeslagen · ${fo.data?.adres || ''}`,
+      error:      fo.errorMsg || 'Onbekende fout'
+    }[fo.status];
+
+    const showSteps  = fo.status === 'queued' || fo.status === 'processing';
+    const showDl     = fo.status === 'done';
+    const showRemove = fo.status !== 'processing';
+    const stepSt     = i => fo.status === 'processing' ? (i < fo.step ? 'done' : i === fo.step ? 'active' : '') : '';
+
+    card.innerHTML = `
+      <div class="fc-progress"><div class="fc-progress-bar" style="width:${barW}%"></div></div>
+      <div class="file-card-header">
+        <div class="fc-icon">${icons[fo.status]}</div>
+        <div class="fc-info">
+          <div class="fc-name">${fo.file.name}</div>
+          <div class="fc-status">${statTxt}</div>
+        </div>
+        <div class="fc-actions">
+          ${showDl     ? `<button class="btn-dl-zip" onclick="downloadFromStorage('${fo.storagePath}','${fo.zipName}')">⬇ ZIP</button>` : ''}
+          ${showRemove ? `<button class="btn-remove" onclick="removeFile('${fo.id}')">✕</button>` : ''}
+        </div>
+      </div>
+      ${showSteps ? `
+      <div class="fc-steps">
+        <div class="fc-step ${stepSt(0)}"><div class="fc-step-dot">${fo.step>0?'✓':'1'}</div><span>PDF lezen</span></div>
+        <div class="fc-divider"></div>
+        <div class="fc-step ${stepSt(1)}"><div class="fc-step-dot">${fo.step>1?'✓':'2'}</div><span>AI analyse</span></div>
+        <div class="fc-divider"></div>
+        <div class="fc-step ${stepSt(2)}"><div class="fc-step-dot">${fo.step>2?'✓':'3'}</div><span>Cloud opslag</span></div>
+      </div>` : ''}
+    `;
+    queue.appendChild(card);
+  });
+
+  // Action bar
+  document.getElementById('actionBar').classList.toggle('visible', files.length > 0);
+  const btn = document.getElementById('btnProcess');
+  btn.disabled = isProcessing || !files.some(f => f.status === 'queued');
+  document.getElementById('btnText').innerHTML = isProcessing
+    ? '<span class="spinner"></span> Verwerken...'
+    : 'Verwerken &amp; ZIP Opslaan';
+
+  // Summary
+  const sb = document.getElementById('summaryBar');
+  sb.classList.toggle('active', files.length > 0);
+  document.getElementById('sumTotal').textContent = files.length;
+  document.getElementById('sumDone').textContent  = files.filter(f => f.status === 'done').length;
+  document.getElementById('sumError').textContent = files.filter(f => f.status === 'error').length;
+}
+
+function updateCard(fo) {
+  const el = document.getElementById(`card-${fo.id}`);
+  if (!el) { render(); return; }
+
+  const icons   = { queued:'📄', processing:'⚙️', done:'✅', error:'❌' };
+  const barW    = { queued:0, processing:[15,55,85][fo.step]||15, done:100, error:100 }[fo.status];
+  const statTxt = {
+    queued:     'Wacht op verwerking...',
+    processing: ['PDF lezen...','AI analyseert...','ZIP opslaan in cloud...'][fo.step] || 'Bezig...',
+    done:       `Opgeslagen · ${fo.data?.adres || ''}`,
+    error:      fo.errorMsg || 'Onbekende fout'
+  }[fo.status];
+
+  el.className = `file-card ${fo.status}`;
+  el.querySelector('.fc-icon').textContent   = icons[fo.status];
+  el.querySelector('.fc-status').textContent = statTxt;
+  el.querySelector('.fc-progress-bar').style.width = barW + '%';
+
+  const acts = el.querySelector('.fc-actions');
+  acts.innerHTML =
+    (fo.status === 'done'       ? `<button class="btn-dl-zip" onclick="downloadFromStorage('${fo.storagePath}','${fo.zipName}')">⬇ ZIP</button>` : '') +
+    (fo.status !== 'processing' ? `<button class="btn-remove" onclick="removeFile('${fo.id}')">✕</button>` : '');
+
+  const stepsEl = el.querySelector('.fc-steps');
+  if (fo.status === 'processing' && stepsEl) {
+    const dots = stepsEl.querySelectorAll('.fc-step');
+    [0,1,2].forEach(i => {
+      if (!dots[i]) return;
+      dots[i].className = `fc-step ${i < fo.step ? 'done' : i === fo.step ? 'active' : ''}`;
+      dots[i].querySelector('.fc-step-dot').textContent = fo.step > i ? '✓' : (i+1);
+    });
+  } else if (stepsEl && (fo.status === 'done' || fo.status === 'error')) {
+    stepsEl.remove();
+  }
+
+  document.getElementById('sumDone').textContent  = files.filter(f => f.status === 'done').length;
+  document.getElementById('sumError').textContent = files.filter(f => f.status === 'error').length;
+}
+
+// ══════════════════════════════════════════════════════════════
+// PDF EXTRACTION
+// ══════════════════════════════════════════════════════════════
+async function extractPdfText(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += `\n--- Pagina ${i} ---\n` + content.items.map(x => x.str).join(' ');
+  }
+  return text;
+}
+
+// ══════════════════════════════════════════════════════════════
+// AI EXTRACTION
+// ══════════════════════════════════════════════════════════════
+async function extractWithAI(pdfText, apiKey) {
+  const prompt = `Je bent een data-extractie specialist voor Hanab Telecom Infra.
+Analyseer de volgende tekst uit een Schaderapport PDF en extraheer de gevraagde gegevens PRECIES.
+
+PDF TEKST:
+${pdfText}
+
+Extraheer de volgende velden en retourneer ALLEEN geldig JSON (geen uitleg, geen markdown):
+{
+  "completed_on": "datum uit 'Completed On' veld, formaat DD-Mon-YYYY HH:MM",
+  "uitvoerdatum": "datum uit 'Datum schadeformulier', formaat YYYY-MM-DD voor Excel",
+  "postcode": "postcode",
+  "adres": "straatnaam + huisnummer",
+  "plaats": "plaatsnaam",
+  "beschrijving": "volledige tekst uit 'Beschrijving uitgevoerde werkzaamheden en benodigd vervolg'",
+  "productiestaat": [
+    { "code": "exacte clustercode", "omschrijving": "omschrijving zoals in PDF", "aantal": 1 }
+  ]
+}
+
+KRITIEK - Productiestaat extractie:
+De Productiestaat sectie heeft dit patroon:
+  STRM11.30 Patch zetten / patch vervangen
+  1
+  STRM11.80 Afspraak gemaakt/Klant niet thuis
+  1
+
+REGEL 1 = [CODE] [OMSCHRIJVING], REGEL 2 = [AANTAL]
+- Codes beginnen met STR (STRM of STRC) gevolgd door cijfers en een punt
+- Het getal op de VOLGENDE REGEL is het AANTAL
+- Extraheer ELKE code met het exacte aantal
+- Aantal is altijd een integer
+- Codes EXACT terug zoals in de PDF`;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',
+      max_tokens:1500,
+      messages:[{ role:'user', content:prompt }]
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API fout ${res.status}`);
+  }
+
+  const resp = await res.json();
+  const raw  = resp.content[0].text.trim()
+    .replace(/^```json\s*/i,'').replace(/\s*```$/,'').trim();
+  return JSON.parse(raw);
+}
+
+// ══════════════════════════════════════════════════════════════
+// EXCEL GENERATION
+// ══════════════════════════════════════════════════════════════
+function generateExcel(data) {
+  const wb = XLSX.utils.book_new();
+  const ws1 = {};
+  function s(cell, v, t) { ws1[cell] = { v, t: t || (typeof v === 'number' ? 'n' : 's') }; }
+
+  s('D1','Clustercode Lijst Schades/Storingen');
+  s('A2','Aannemer:');               s('B2','Mir Solutions');
+  s('D2','Uitvoerdatum:');           s('F2', data.uitvoerdatum || '');
+  s('A3','Project - ID-nummer: ');   s('D3','Projectnummer');
+  s('A4','Bon nummer: ');            s('D4','Postcode:');  s('F4', data.postcode || '');
+  s('D5','Straatnaam & huisnummer:');                       s('F5', data.adres || '');
+  s('A6','ETL Schades & Storingen'); s('D6','Plaats:');    s('F6', data.plaats || '');
+  s('A7','Versie 5.0  21-10-2025'); s('D7','Toelichting:'); s('F7', data.beschrijving || '');
+  s('A9','Geclusterde Eenheden');
+  s('A11','Clustercode'); s('B11','Omschrijving');
+  s('H11','Eenheid'); s('I11','Prijs excl. materiaal'); s('J11','Aantal'); s('K11','Totaal');
+
+  const sections = [
+    {row:12,label:'Passief domein'},
+    {row:13,code:'STRM11.10',desc:'Kabelschade(s) in Accessnetvlak, klantaansluiting(en) hersteld dmv lasmof',unit:'stuks',price:216.89},
+    {row:14,code:'STRM11.20',desc:'FTU vervangen',unit:'stuks',price:169.10},
+    {row:15,code:'STRM11.21',desc:'Pigtail in FTU vervangen',unit:'stuks',price:80.10},
+    {row:16,code:'STRM11.30',desc:'Patch zetten / patch vervangen',unit:'stuks',price:45.74},
+    {row:18,label:'Klantcontact'},
+    {row:19,code:'STRM11.80',desc:'Afspraak gemaakt, klant niet thuis',unit:'stuks',price:48.95},
+    {row:20,code:'STRM11.81',desc:'Klant onbereikbaar',unit:'stuks',price:13.35},
+    {row:22,label:'BOIO (Bij Onderzoek In Orde)'},
+    {row:23,code:'STRM11.90',desc:'Klant meldt geen verstoring te hebben, klant is in dienst',unit:'stuks',price:13.35},
+    {row:24,code:'STRM11.91',desc:'Geen verstoring geconstateerd, klant is in dienst',unit:'stuks',price:49.84},
+    {row:26,label:'Civiele werkzaamheden'},
+    {row:27,code:'STRC2.00',desc:'Graven en dichten geul, excl. opnemen/herstel geulbedekking',unit:'mtr',price:9.58},
+    {row:28,code:'STRC2.10',desc:'Graven en dichten geul, incl. opnemen/herstel geulbedekking',unit:'mtr',price:16.02},
+    {row:29,code:'STRC2.30',desc:'Opbreken verharding',unit:'mtr',price:5.38},
+    {row:31,label:'Montage werkzaamheden'},
+    {row:32,code:'STRM3.00',desc:'Leveren + montage van een ODF 96v Las/Patch-lade',unit:'stuks',price:347.21},
+    {row:33,code:'STRM3.10',desc:'Leveren, plaatsen en montage van een DP',unit:'stuks',price:51.13},
+    {row:34,code:'STRM3.15',desc:'Lassen vezel',unit:'stuks',price:10.68},
+    {row:35,code:'STRM3.20',desc:'Openen, dichten van bestaande DP',unit:'stuks',price:48.06},
+    {row:36,code:'STRM3.30',desc:'Leveren en plaatsen en montage van een reparatie mof/doorlas t.b.v. klantaansluiting(en)',unit:'stuks',price:53.40},
+    {row:37,code:'STRM3.40',desc:'Plaatsen en lassen van FTU',unit:'stuks',price:69.42},
+    {row:38,code:'STRC3.71',desc:'Inpandig trekken en bevestigen van 2vz DB, MDIC kabel of microduct in hoogbouw',unit:'mtr',price:1.07},
+    {row:40,label:'Glasvezelkabel en buis'},
+    {row:41,code:'STRC4.00',desc:'Leveren en blaz. 96vz miniglasvezelkabel',unit:'mtr',price:0.75},
+    {row:42,code:'STRC4.01',desc:'Leveren en blazen 192vz miniglasvezelkabel',unit:'mtr',price:3.98},
+    {row:43,code:'STRC4.10',desc:'Leveren en blazen van een 2vz Fiber Unit',unit:'mtr',price:0.45},
+    {row:44,code:'STRC4.11',desc:'Leveren en blazen van een 6vz Fiber Unit',unit:'mtr',price:0.45},
+    {row:45,code:'STRM4.23',desc:'Leveren en plaatsen van een splitslas',unit:'stuks',price:111.77},
+    {row:46,code:'STRC4.24',desc:'Leveren en leggen Risercable 6-voudig',unit:'mtr',price:1.38},
+    {row:47,code:'STRC4.25',desc:'Leveren en leggen Risercable 12-voudig',unit:'mtr',price:1.38},
+    {row:48,code:'STRC4.26',desc:'Leveren en leggen Risercable 24-voudig',unit:'mtr',price:1.38},
+    {row:49,code:'STRC4.60',desc:'Uitblazen van 96vz glasvezelkabel',unit:'mtr',price:0.75},
+    {row:50,code:'STRC4.61',desc:'Uitblazen van 2vz glasvezelkabel',unit:'mtr',price:0.48},
+    {row:52,label:'Installatie en/of activatie'},
+    {row:53,code:'STRM6.00',desc:'Maken patching incl. levering patch cord',unit:'stuks',price:4.81},
+    {row:54,code:'STRM6.10',desc:'NT installatie combi',unit:'stuks',price:10.00},
+    {row:56,label:'Uurtarieven'},
+    {row:57,code:'STRM8.00',desc:'Storingsploeg, compleet uitgerust',unit:'uur',price:106.80},
+    {row:58,code:'STRM8.01',desc:'Inzet graafmachine en toebehoren zonder bediening',unit:'uur',price:26.70},
+    {row:59,code:'STRM8.10',desc:'Grondwerker, inclusief auto en gereedschap (per persoon)',unit:'uur',price:42.72},
+    {row:60,code:'STRM8.11',desc:'Graafploeg, inclusief auto, gereedschap en graafmachine (ploeg 2 personen)',unit:'uur',price:96.12},
+    {row:61,code:'STRM8.15',desc:"Inblaasploeg klein inclusief auto's en apparatuur (ploeg 2 personen)",unit:'uur',price:106.80},
+    {row:62,code:'STRM8.16',desc:"Inblaasploeg groot inclusief auto's en apparatuur (bestaande KPN netwerken)",unit:'uur',price:149.52},
+    {row:63,code:'STRM8.17',desc:'Reiskosten nieuwbouw',unit:'p.p per uur',price:45.39},
+    {row:65,label:'Administratie / overig'},
+    {row:66,code:'STRM0.42',desc:'Opstellen schadedossier',unit:'stuks',price:48.06},
+    {row:67,code:'C024',desc:'Klic-melding',unit:'stuks',price:23.65},
+  ];
+
+  const codeAantal = {};
+  (data.productiestaat || []).forEach(item => { codeAantal[item.code] = item.aantal; });
+
+  sections.forEach(sec => {
+    const r = sec.row - 1;
+    if (sec.label) {
+      ws1[XLSX.utils.encode_cell({r, c:1})] = { v:sec.label, t:'s' };
+    } else {
+      ws1[XLSX.utils.encode_cell({r, c:0})] = { v:sec.code,  t:'s' };
+      ws1[XLSX.utils.encode_cell({r, c:1})] = { v:sec.desc,  t:'s' };
+      ws1[XLSX.utils.encode_cell({r, c:7})] = { v:sec.unit,  t:'s' };
+      ws1[XLSX.utils.encode_cell({r, c:8})] = { v:sec.price, t:'n' };
+      const aantal = codeAantal[sec.code];
+      if (aantal !== undefined && aantal !== null && aantal !== 0)
+        ws1[XLSX.utils.encode_cell({r, c:9})] = { v:aantal, t:'n' };
+      ws1[XLSX.utils.encode_cell({r, c:10})] = { f:`J${sec.row}*I${sec.row}`, t:'n' };
+    }
+  });
+
+  ws1['J70'] = { v:'Totaal excl. materiaal:', t:'s' };
+  ws1['J71'] = { f:'SUM(K13:K67)', t:'n' };
+  ws1['!ref']  = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:77,c:10} });
+  ws1['!cols'] = [{wch:22},{wch:55},{wch:6},{wch:22},{wch:6},{wch:45},{wch:6},{wch:14},{wch:18},{wch:10},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'ETL excl materiaalkosten');
+
+  const ws2 = {};
+  function s2(cell, v, t) { ws2[cell] = { v, t: t||(typeof v==='number'?'n':'s') }; }
+  s2('D1','Clustercode Lijst Schades/Storingen');
+  s2('A2','Aannemer:');              ws2['B2']={f:"'ETL excl materiaalkosten'!B2",t:'s'};
+  s2('D2','Uitvoerdatum:');          ws2['F2']={f:"'ETL excl materiaalkosten'!F2",t:'s'};
+  s2('A3','Project - ID-nummer: '); ws2['B3']={f:"'ETL excl materiaalkosten'!B3",t:'s'};
+  s2('D3','Projectnummer');          ws2['F3']={f:"'ETL excl materiaalkosten'!F3",t:'s'};
+  s2('A4','Bon nummer: ');           ws2['B4']={f:"'ETL excl materiaalkosten'!B4",t:'s'};
+  s2('D4','Postcode:');              ws2['F4']={f:"'ETL excl materiaalkosten'!F4",t:'s'};
+  s2('D5','Straatnaam & huisnummer:'); ws2['F5']={f:"'ETL excl materiaalkosten'!F5",t:'s'};
+  s2('A6','ETL Schades & Storingen'); s2('D6','Plaats:'); ws2['F6']={f:"'ETL excl materiaalkosten'!F6",t:'s'};
+  s2('A7','Versie 5.0  21-10-2025'); s2('D7','Toelichting:'); ws2['F7']={f:"'ETL excl materiaalkosten'!F7",t:'s'};
+  s2('A9','Geclusterde Eenheden');
+  s2('A11','Clustercode'); s2('B11','Omschrijving'); s2('G11','Incl materiaal');
+  s2('H11','Eenheid'); s2('I11','kostprijs excl. materiaal'); s2('J11','Aantal'); s2('K11','Totaal');
+  ws2['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0},e:{r:82,c:11}});
+  XLSX.utils.book_append_sheet(wb, ws2, 'ETL incl. materiaalkosten');
+
+  const ws3 = XLSX.utils.aoa_to_sheet([
+    ['Logboek'],
+    ['Projectnummer',{f:"'ETL excl materiaalkosten'!F3"},null,'Plaats',null,{f:"'ETL excl materiaalkosten'!F6"}],
+    ['Closedate',{f:"'ETL excl materiaalkosten'!F2"},null,'Straat + huisnr.',null,{f:"'ETL excl materiaalkosten'!F5"}],
+    ['Service','FTH Storing Klant U2',null,'Postcode',null,{f:"'ETL excl materiaalkosten'!F4"}],
+    ['Tijd','Omschrijving werkzaamheden'],['Dag 1','Voorbereiden,'],['Opmerkingen:']
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Logboek');
+  return wb;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ZIP + SUPABASE UPLOAD
+// ══════════════════════════════════════════════════════════════
+async function buildAndUploadZip(fo) {
+  // Build ZIP in memory
+  const zip = new JSZip();
+  zip.file(fo.file.name, await fo.file.arrayBuffer());
+  const wb        = generateExcel(fo.data);
+  const adres     = (fo.data.adres || 'AVS').replace(/[^a-zA-Z0-9]/g,'_');
+  const datum     = (fo.data.uitvoerdatum || new Date().toISOString().slice(0,10)).replace(/-/g,'');
+  const xlsxName  = `AVS_${adres}_${datum}.xlsx`;
+  zip.file(xlsxName, XLSX.write(wb, { bookType:'xlsx', type:'array' }));
+  const zipBlob = await zip.generateAsync({ type:'blob' });
+  const zipName = `AVS_${adres}_${datum}.zip`;
+
+  // Upload to Supabase Storage
+  const path = `${currentUser.id}/${Date.now()}_${zipName}`;
+  const { error } = await supa.storage.from(BUCKET).upload(path, zipBlob, {
+    contentType: 'application/zip',
+    upsert: false
+  });
+  if (error) throw new Error('Upload mislukt: ' + error.message);
+
+  // Save metadata to database
+  const expiresAt = new Date(Date.now() + EXPIRY_DAYS * 86400000).toISOString();
+  await supa.from('avs_files').insert({
+    user_id:      currentUser.id,
+    uploader_name: currentUser.user_metadata?.name || currentUser.email,
+    file_name:    zipName,
+    storage_path: path,
+    adres:        fo.data.adres || '',
+    expires_at:   expiresAt
+  });
+
+  return { path, zipName };
+}
+
+// ══════════════════════════════════════════════════════════════
+// DOWNLOAD FROM STORAGE
+// ══════════════════════════════════════════════════════════════
+async function downloadFromStorage(path, name) {
+  const { data, error } = await supa.storage.from(BUCKET).download(path);
+  if (error) { alert('Download mislukt: ' + error.message); return; }
+  const url = URL.createObjectURL(data);
+  const a   = Object.assign(document.createElement('a'), { href:url, download:name });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ══════════════════════════════════════════════════════════════
+// HISTORY TAB
+// ══════════════════════════════════════════════════════════════
+async function loadHistory() {
+  const content = document.getElementById('historyContent');
+  content.innerHTML = '<div class="loading-hist"><span class="spinner-muted"></span></div>';
+
+  const { data, error } = await supa.from('avs_files')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) { content.innerHTML = `<div class="history-empty" style="color:var(--error)">Fout: ${error.message}</div>`; return; }
+
+  // Filter out expired
+  const now = Date.now();
+  const active = data.filter(r => new Date(r.expires_at).getTime() > now);
+
+  if (active.length === 0) {
+    content.innerHTML = `<div class="history-empty"><div class="he-icon">🗂</div>Nog geen opgeslagen ZIPs.<br>Verwerk een PDF om te beginnen.</div>`;
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'history-list';
+
+  active.forEach(row => {
+    const expiresAt  = new Date(row.expires_at);
+    const daysLeft   = Math.ceil((expiresAt - now) / 86400000);
+    const card = document.createElement('div');
+    card.className = 'hist-card';
+    card.innerHTML = `
+      <div class="hist-icon">📦</div>
+      <div class="hist-info">
+        <div class="hist-name">${row.file_name}</div>
+        <div class="hist-meta">${row.adres || '—'} · Geüpload door ${row.uploader_name || 'onbekend'} · ${new Date(row.created_at).toLocaleDateString('nl-NL')}</div>
+        <div class="hist-expires">Verloopt over ${daysLeft} dag${daysLeft !== 1 ? 'en' : ''}</div>
+      </div>
+      <div class="hist-actions">
+        <button class="btn-hist-dl" onclick="downloadFromStorage('${row.storage_path}','${row.file_name}')">⬇ ZIP</button>
+        <button class="btn-hist-del" onclick="deleteHistoryItem('${row.id}','${row.storage_path}', this)">✕</button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  content.innerHTML = '';
+  content.appendChild(list);
+}
+
+async function deleteHistoryItem(id, path, btn) {
+  btn.disabled = true; btn.textContent = '...';
+  await supa.storage.from(BUCKET).remove([path]);
+  await supa.from('avs_files').delete().eq('id', id);
+  loadHistory();
+}
+
+// ══════════════════════════════════════════════════════════════
+// MAIN PROCESSING
+// ══════════════════════════════════════════════════════════════
+async function processAll() {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) { showGlobalError('Voer eerst een Anthropic API key in.'); return; }
+  document.getElementById('errorPanel').classList.remove('active');
+
+  const queued = files.filter(f => f.status === 'queued');
+  if (!queued.length) return;
+
+  isProcessing = true; render();
+
+  for (const fo of queued) {
+    await processSingle(fo, apiKey);
+  }
+
+  isProcessing = false;
+  document.getElementById('btnProcess').disabled = !files.some(f => f.status === 'queued');
+  document.getElementById('btnText').innerHTML = 'Verwerken &amp; ZIP Opslaan';
+}
+
+async function processSingle(fo, apiKey) {
+  fo.status = 'processing'; fo.step = 0; updateCard(fo);
+  try {
+    fo.step = 0; updateCard(fo);
+    const pdfText = await extractPdfText(fo.file);
+
+    fo.step = 1; updateCard(fo);
+    fo.data = await extractWithAI(pdfText, apiKey);
+
+    fo.step = 2; updateCard(fo);
+    const { path, zipName } = await buildAndUploadZip(fo);
+    fo.storagePath = path;
+    fo.zipName     = zipName;
+    fo.status      = 'done';
+  } catch (err) {
+    fo.status   = 'error';
+    fo.errorMsg = err.message;
+  }
+  updateCard(fo);
+}
+
+function showGlobalError(msg) {
+  const ep = document.getElementById('errorPanel');
+  ep.textContent = '⚠ ' + msg;
+  ep.classList.add('active');
+}
+</script>
+</body>
+</html>
