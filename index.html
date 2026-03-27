@@ -150,15 +150,18 @@ body::before {
 .file-card.done       { border-color:rgba(71,255,170,0.4); }
 .file-card.done.warn  { border-color:rgba(255,179,71,0.6); }
 .file-card.error      { border-color:rgba(255,71,96,0.4); }
+.file-card.invalid    { border-color:rgba(255,140,0,0.6); }
 .fc-progress { height:3px; background:var(--border); position:relative; overflow:hidden; }
 .fc-progress-bar { position:absolute; left:0; top:0; bottom:0; background:var(--accent2); transition:width 0.5s ease; }
 .file-card.done  .fc-progress-bar { background:var(--success); width:100% !important; }
 .file-card.error .fc-progress-bar { background:var(--error); width:100% !important; }
+.file-card.invalid .fc-progress-bar { background:rgba(255,140,0,0.8); width:100% !important; }
 .file-card-header { display:flex; align-items:center; gap:14px; padding:15px 18px; }
 .fc-icon { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; background:var(--surface2); border:1px solid var(--border); }
 .file-card.processing .fc-icon { background:rgba(71,212,255,0.1); border-color:rgba(71,212,255,0.25); }
 .file-card.done       .fc-icon { background:rgba(71,255,170,0.1); border-color:rgba(71,255,170,0.25); }
 .file-card.error      .fc-icon { background:rgba(255,71,96,0.1);  border-color:rgba(255,71,96,0.25); }
+.file-card.invalid    .fc-icon { background:rgba(255,140,0,0.1);  border-color:rgba(255,140,0,0.3); }
 .fc-info { flex:1; min-width:0; }
 .fc-name { font-family:'DM Mono',monospace; font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:2px; }
 .fc-status { font-size:12px; color:var(--muted); }
@@ -166,6 +169,9 @@ body::before {
 .file-card.done       .fc-status { color:var(--success); }
 .file-card.done.warn  .fc-status { color:var(--warning); }
 .file-card.error      .fc-status { color:var(--error); }
+.file-card.invalid    .fc-status { color:rgba(255,140,0,1); }
+.fc-violations { padding:8px 18px 10px; border-top:1px solid rgba(255,140,0,0.2); }
+.fc-violation  { font-size:12px; color:rgba(255,140,0,0.9); line-height:1.6; }
 .fc-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
 .btn-remove { background:none; border:1px solid var(--border); border-radius:6px; padding:5px 10px; color:var(--muted); font-size:11px; cursor:pointer; transition:all 0.2s; font-family:'DM Sans',sans-serif; }
 .btn-remove:hover { border-color:var(--error); color:var(--error); }
@@ -399,6 +405,7 @@ body::before {
       <div class="summary-bar" id="summaryBar">
         <div class="sum-card"><div class="sum-val yellow" id="sumTotal">0</div><div class="sum-label">Totaal</div></div>
         <div class="sum-card"><div class="sum-val green"  id="sumDone">0</div><div class="sum-label">Verwerkt</div></div>
+        <div class="sum-card"><div class="sum-val" style="color:rgba(255,140,0,1)" id="sumInvalid">0</div><div class="sum-label">Handmatig</div></div>
         <div class="sum-card"><div class="sum-val red"    id="sumError">0</div><div class="sum-label">Fout</div></div>
       </div>
     </div>
@@ -666,28 +673,43 @@ function render() {
   // Summary
   const sb = document.getElementById('summaryBar');
   sb.classList.toggle('active', files.length > 0);
-  document.getElementById('sumTotal').textContent = files.length;
-  document.getElementById('sumDone').textContent  = files.filter(f => f.status === 'done').length;
-  document.getElementById('sumError').textContent = files.filter(f => f.status === 'error').length;
+  document.getElementById('sumTotal').textContent   = files.length;
+  document.getElementById('sumDone').textContent    = files.filter(f => f.status === 'done').length;
+  document.getElementById('sumInvalid').textContent = files.filter(f => f.status === 'invalid').length;
+  document.getElementById('sumError').textContent   = files.filter(f => f.status === 'error').length;
 }
 
 function updateCard(fo) {
   const el = document.getElementById(`card-${fo.id}`);
   if (!el) { render(); return; }
 
-  const icons   = { queued:'📄', processing:'⚙️', done:'✅', error:'❌' };
-  const barW    = { queued:0, processing:[15,55,85][fo.step]||15, done:100, error:100 }[fo.status];
+  const icons   = { queued:'📄', processing:'⚙️', done:'✅', error:'❌', invalid:'⚠️' };
+  const barW    = { queued:0, processing:[15,55,85][fo.step]||15, done:100, error:100, invalid:100 }[fo.status];
   const statTxt = {
     queued:     'Wacht op verwerking...',
     processing: ['PDF lezen...','AI analyseert...','ZIP opslaan in cloud...'][fo.step] || 'Bezig...',
     done:       fo.warningMsg || `Opgeslagen · ${fo.data?.adres || ''}`,
-    error:      fo.errorMsg || 'Onbekende fout'
+    error:      fo.errorMsg || 'Onbekende fout',
+    invalid:    '⚠ AVS handmatig schrijven — codes voldoen niet aan het handboek'
   }[fo.status];
 
   el.className = `file-card ${fo.status}${fo.warn ? ' warn' : ''}`;
-  el.querySelector('.fc-icon').textContent   = icons[fo.status];
+  el.querySelector('.fc-icon').textContent   = icons[fo.status] || '📄';
   el.querySelector('.fc-status').textContent = statTxt;
   el.querySelector('.fc-progress-bar').style.width = barW + '%';
+
+  // Toon overtredingen onder de statusbalk als de AVS ongeldig is
+  let violEl = el.querySelector('.fc-violations');
+  if (fo.status === 'invalid' && fo.violations?.length) {
+    if (!violEl) {
+      violEl = document.createElement('div');
+      violEl.className = 'fc-violations';
+      el.querySelector('.fc-body').appendChild(violEl);
+    }
+    violEl.innerHTML = fo.violations.map(v => `<div class="fc-violation">• ${v}</div>`).join('');
+  } else if (violEl) {
+    violEl.remove();
+  }
 
   const acts = el.querySelector('.fc-actions');
   acts.innerHTML =
@@ -702,12 +724,13 @@ function updateCard(fo) {
       dots[i].className = `fc-step ${i < fo.step ? 'done' : i === fo.step ? 'active' : ''}`;
       dots[i].querySelector('.fc-step-dot').textContent = fo.step > i ? '✓' : (i+1);
     });
-  } else if (stepsEl && (fo.status === 'done' || fo.status === 'error')) {
+  } else if (stepsEl && (fo.status === 'done' || fo.status === 'error' || fo.status === 'invalid')) {
     stepsEl.remove();
   }
 
-  document.getElementById('sumDone').textContent  = files.filter(f => f.status === 'done').length;
-  document.getElementById('sumError').textContent = files.filter(f => f.status === 'error').length;
+  document.getElementById('sumDone').textContent    = files.filter(f => f.status === 'done').length;
+  document.getElementById('sumInvalid').textContent = files.filter(f => f.status === 'invalid').length;
+  document.getElementById('sumError').textContent   = files.filter(f => f.status === 'error').length;
   const doneCntU = files.filter(f => f.status === 'done' && f.zipBlob).length;
   const dlAllBannerU = document.getElementById('dlAllBanner');
   const dlAllBtnU = document.getElementById('btnDlAll');
@@ -754,13 +777,22 @@ async function extractPdfText(file) {
 // AI EXTRACTION
 // ══════════════════════════════════════════════════════════════
 async function extractWithAI(pdfText, apiKey) {
-  const prompt = `Je bent een data-extractie specialist voor Hanab Telecom Infra.
-Analyseer de volgende tekst uit een Schaderapport PDF en extraheer de gevraagde gegevens PRECIES.
+  const prompt = `Je bent een data-extractie en validatie specialist voor Hanab Telecom Infra.
+Analyseer de volgende tekst uit een Schaderapport PDF. Doe TWO dingen tegelijk:
+1. Extraheer de gegevens
+2. Valideer de clustercodes tegen de handboekregels hieronder
 
 PDF TEKST:
 ${pdfText}
 
-Extraheer de volgende velden en retourneer ALLEEN geldig JSON (geen uitleg, geen markdown):
+CLUSTERCODE HANDBOEK REGELS (verplicht te controleren):
+R1. Maximaal ÉÉN code beginnend met STRM11.xx per AVS. Meerdere 11-codes = ONGELDIG.
+R2. STRM8.00 en STRM8.15 mogen NIET samen voorkomen. Kies één van de twee.
+R3. STRM0.42 (schadedossier) mag ALLEEN geschreven worden als STRM11.10 én STRM11.20 BEIDE afwezig zijn.
+R4. STRC3.71, STRC4.24, STRC4.25, STRC4.26 mogen ALLEEN voor nieuwbouw aansluitingen, NIET voor schades/storingen.
+R5. Alle codes moeten bestaan in de bekende lijst: STRM11.10, STRM11.20, STRM11.21, STRM11.30, STRM11.80, STRM11.81, STRM11.90, STRM11.91, STRC2.00, STRC2.10, STRC2.30, STRM3.00, STRM3.10, STRM3.15, STRM3.20, STRM3.30, STRM3.40, STRC3.71, STRC4.00, STRC4.01, STRC4.10, STRC4.11, STRM4.23, STRC4.24, STRC4.25, STRC4.26, STRC4.60, STRC4.61, STRM6.00, STRM6.10, STRM8.00, STRM8.01, STRM8.10, STRM8.11, STRM8.15, STRM8.16, STRM8.17, STRM0.42, C024.
+
+Retourneer ALLEEN geldig JSON (geen uitleg, geen markdown):
 {
   "completed_on": "datum uit 'Completed On' veld, formaat DD-Mon-YYYY HH:MM",
   "uitvoerdatum": "datum uit 'Datum schadeformulier', formaat YYYY-MM-DD voor Excel",
@@ -768,10 +800,14 @@ Extraheer de volgende velden en retourneer ALLEEN geldig JSON (geen uitleg, geen
   "adres": "straatnaam + huisnummer",
   "plaats": "plaatsnaam",
   "beschrijving": "volledige tekst uit 'Beschrijving uitgevoerde werkzaamheden en benodigd vervolg'",
-  "projectnummer": "het projectnummer uit de beschrijving — het getal of PR-nummer direct na 'Project' aan het begin, bijv. '844483' of 'PR12345678'. Alleen het nummer zelf, zonder het woord Project.",
+  "projectnummer": "het getal of PR-nummer direct na 'Project' aan het begin van de beschrijving, bijv. '844483' of 'PR12345678'. Alleen het nummer zelf.",
   "productiestaat": [
     { "code": "exacte clustercode", "omschrijving": "omschrijving zoals in PDF", "aantal": 1 }
-  ]
+  ],
+  "validatie": {
+    "geldig": true,
+    "overtredingen": []
+  }
 }
 
 KRITIEK - Productiestaat extractie:
@@ -786,7 +822,13 @@ REGEL 1 = [CODE] [OMSCHRIJVING], REGEL 2 = [AANTAL]
 - Het getal op de VOLGENDE REGEL is het AANTAL
 - Extraheer ELKE code met het exacte aantal
 - Aantal is altijd een integer
-- Codes EXACT terug zoals in de PDF`;
+- Codes EXACT terug zoals in de PDF
+
+VALIDATIE instructies:
+- Controleer alle R1 t/m R5 regels op de geëxtraheerde productiestaat
+- Als een of meer regels worden overtreden: zet "geldig": false en beschrijf elke overtreding in "overtredingen" als array van strings in het Nederlands
+- Als alles klopt: zet "geldig": true en "overtredingen": []
+- Wees specifiek: noem de exacte codes die het probleem veroorzaken`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
@@ -1082,6 +1124,17 @@ async function processSingle(fo, apiKey) {
     fo.data = await extractWithAIRetry(pdfText, apiKey, fo);
 
     fo.step = 2; updateCard(fo);
+
+    // ── Handboek validatie ────────────────────────────────────
+    const v = fo.data.validatie;
+    if (v && !v.geldig) {
+      fo.status     = 'invalid';
+      fo.errorMsg   = '⚠ AVS handmatig schrijven — codes voldoen niet aan het handboek';
+      fo.violations = v.overtredingen || [];
+      updateCard(fo);
+      return; // geen ZIP aanmaken
+    }
+
     const { path, zipName } = await buildAndUploadZip(fo);
     fo.storagePath = path;
     fo.zipName     = zipName;
